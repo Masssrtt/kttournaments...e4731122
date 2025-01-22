@@ -3,9 +3,11 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from collections import defaultdict
+from flask import Flask, request
+import os
 
 # API Token
-TOKEN = '7605213276:AAG7xpVqnG4mxcdgvlqh91tbu_Foaw2D3Ik'
+TOKEN = os.getenv("BOT_TOKEN", "7605213276:AAG7xpVqnG4mxcdgvlqh91tbu_Foaw2D3Ik")
 ADMIN_IDS = {5176006969, 1483826275}
 
 # Збереження балансу користувачів та списку всіх користувачів
@@ -13,6 +15,12 @@ user_balances = defaultdict(int)
 all_users = set()
 pending_questions = {}
 match_predictions = {}
+
+# Flask для вебхуків
+app_flask = Flask(__name__)
+
+# Telegram бот
+app = Application.builder().token(TOKEN).build()
 
 # Функція старту
 async def start(update: Update, context):
@@ -191,10 +199,7 @@ async def remove_expired_question(message_id, context):
         await context.bot.send_message(chat_id=user_id, text="⏳ Час вийшов! Ви не встигли відповісти.")
         del pending_questions[message_id]
 
-# Налаштування бота
-app = Application.builder().token(TOKEN).build()
-
-# Обробники команд
+# Налаштування обробників команд
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("create_question", create_question))
 app.add_handler(CommandHandler("balance", balance))
@@ -203,5 +208,20 @@ app.add_handler(CommandHandler("match_predict_ad", match_predict_ad))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.add_handler(CallbackQueryHandler(answer_callback))
 
-print("Бот запущено...")
-app.run_polling()
+# Функція для встановлення вебхука
+@app_flask.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    """Обробка вхідних оновлень від Telegram."""
+    update_data = request.get_json()
+    asyncio.run(app.process_update(Update.de_json(update_data, app.bot)))
+    return "ok", 200
+
+# Команда для запуску
+if __name__ == "__main__":
+    # Запускаємо вебсервер Flask
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-deployment-url.onrender.com")  # Заміни на свій URL
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 8443)),
+        webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
+    )
